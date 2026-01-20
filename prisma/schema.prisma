@@ -1,0 +1,62 @@
+// Prisma Schema pour BookRoom API
+// Documentation: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Modèle des salles de réunion
+model Room {
+  id            String    @id @default(uuid())
+  name          String
+  description   String
+  capacity      Int
+  pricePerHour  Float
+  equipments    String[]
+  imageUrl      String
+  images        String[]
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  bookings      Booking[]
+
+  @@map("rooms")
+}
+
+// Modèle des réservations
+model Booking {
+  id             String        @id @default(uuid())
+  roomId         String
+  room           Room          @relation(fields: [roomId], references: [id])
+  userId         String        // Clerk User ID
+  date           String        // Format: YYYY-MM-DD
+  startTime      String        // Format: HH:MM
+  endTime        String        // Format: HH:MM
+  customerName   String
+  customerEmail  String
+  customerPhone  String?
+  numberOfPeople Int
+  totalPrice     Float
+  status         BookingStatus @default(CONFIRMED)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@map("bookings")
+  @@index([userId])
+  @@index([roomId])
+  @@index([date])
+  @@index([status])
+}
+
+// Statuts des réservations
+enum BookingStatus {
+  CONFIRMED
+  MODIFIED
+  CANCELLED
+  COMPLETED
+}

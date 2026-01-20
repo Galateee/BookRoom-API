@@ -1,0 +1,43 @@
+services:
+  # Base de données PostgreSQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: bookroom-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: bookroom
+      POSTGRES_PASSWORD: bookroom123
+      POSTGRES_DB: bookroom
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bookroom -d bookroom"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API Express
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bookroom-api
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://bookroom:bookroom123@postgres:5432/bookroom
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      # Hot reload en développement
+      - ./src:/app/src:ro
+
+volumes:
+  postgres_data:
+    name: bookroom-postgres-data
