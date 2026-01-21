@@ -84,16 +84,20 @@ export async function getRoomById(req: Request, res: Response): Promise<void> {
         startTime: true,
         endTime: true,
       },
+      orderBy: [{ date: "asc" }, { startTime: "asc" }],
     });
 
-    // Générer les créneaux disponibles pour les 7 prochains jours
-    const availableSlots = generateAvailableSlots(bookings);
+    const maxDate = new Date();
+    maxDate.setDate(maxDate.getDate() + 7);
+    const maxDateStr = maxDate.toISOString().split("T")[0];
+
+    const bookingsFiltered = bookings.filter((b) => b.date <= maxDateStr);
 
     res.json({
       success: true,
       data: {
         ...room,
-        availableSlots,
+        bookedSlots: bookingsFiltered,
       },
     });
   } catch (error) {
@@ -106,50 +110,4 @@ export async function getRoomById(req: Request, res: Response): Promise<void> {
       },
     });
   }
-}
-
-interface BookedSlot {
-  date: string;
-  startTime: string;
-  endTime: string;
-}
-
-interface AvailableSlot {
-  date: string;
-  slots: string[];
-}
-
-/**
- * Génère les créneaux disponibles pour les 7 prochains jours
- */
-function generateAvailableSlots(bookedSlots: BookedSlot[]): AvailableSlot[] {
-  const slots: AvailableSlot[] = [];
-  const allHours = ["09:00", "10:00", "11:00", "12:00", "14:00", "15:00", "16:00", "17:00"];
-
-  for (let i = 0; i < 7; i++) {
-    const date = new Date();
-    date.setDate(date.getDate() + i);
-    const dateStr = date.toISOString().split("T")[0];
-
-    // Trouver les créneaux déjà réservés pour cette date
-    const bookedForDate = bookedSlots.filter((b) => b.date === dateStr);
-    const bookedHours = new Set<string>();
-
-    bookedForDate.forEach((booking) => {
-      const start = parseInt(booking.startTime.split(":")[0]);
-      const end = parseInt(booking.endTime.split(":")[0]);
-      for (let h = start; h < end; h++) {
-        bookedHours.add(`${h.toString().padStart(2, "0")}:00`);
-      }
-    });
-
-    // Créneaux disponibles = tous les créneaux - les réservés
-    const available = allHours.filter((h) => !bookedHours.has(h));
-
-    if (available.length > 0) {
-      slots.push({ date: dateStr, slots: available });
-    }
-  }
-
-  return slots;
 }

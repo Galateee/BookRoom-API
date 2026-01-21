@@ -190,7 +190,7 @@ export async function getMyBookings(req: AuthRequest, res: Response): Promise<vo
       include: {
         room: { select: { name: true } },
       },
-      orderBy: [{ date: "desc" }, { startTime: "desc" }],
+      orderBy: { createdAt: "desc" },
     });
 
     const formattedBookings = bookings.map((b: (typeof bookings)[0]) => ({
