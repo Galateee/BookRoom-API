@@ -3,6 +3,42 @@ import { AuthRequest } from "../middlewares/auth.middleware";
 import prisma from "../config/database";
 
 /**
+ * Récupérer toutes les salles (actives et désactivées) pour l'admin
+ */
+export async function getAllRooms(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const rooms = await prisma.room.findMany({
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        capacity: true,
+        pricePerHour: true,
+        equipments: true,
+        imageUrl: true,
+        isActive: true,
+      },
+      orderBy: { name: "asc" },
+    });
+
+    res.json({
+      success: true,
+      data: rooms,
+      meta: { total: rooms.length },
+    });
+  } catch (error) {
+    console.error("Error fetching all rooms:", error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "SERVER_ERROR",
+        message: "Erreur lors de la récupération des salles",
+      },
+    });
+  }
+}
+
+/**
  * Créer une nouvelle salle
  */
 export async function createRoom(req: AuthRequest, res: Response): Promise<void> {
@@ -81,7 +117,6 @@ export async function updateRoom(req: AuthRequest, res: Response): Promise<void>
     const { name, description, capacity, pricePerHour, equipments, imageUrl, images, isActive } =
       req.body;
 
-    // Vérifier que la salle existe
     const existingRoom = await prisma.room.findUnique({
       where: { id },
     });
@@ -151,7 +186,53 @@ export async function updateRoom(req: AuthRequest, res: Response): Promise<void>
 }
 
 /**
- * Supprimer une salle (soft delete en désactivant)
+ * Toggle l'état actif/désactivé d'une salle
+ */
+export async function toggleRoomStatus(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const id = req.params.id as string;
+
+    const existingRoom = await prisma.room.findUnique({
+      where: { id },
+    });
+
+    if (!existingRoom) {
+      res.status(404).json({
+        success: false,
+        error: {
+          code: "ROOM_NOT_FOUND",
+          message: "Salle non trouvée",
+        },
+      });
+      return;
+    }
+
+    const room = await prisma.room.update({
+      where: { id },
+      data: { isActive: !existingRoom.isActive },
+    });
+
+    res.json({
+      success: true,
+      message: room.isActive
+        ? "Salle activée avec succès"
+        : "Salle désactivée avec succès. Elle n'est plus visible par les utilisateurs.",
+      data: room,
+    });
+  } catch (error) {
+    console.error("Erreur lors du changement d'état:", error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "INTERNAL_ERROR",
+        message: "Erreur lors du changement d'état de la salle",
+      },
+    });
+  }
+}
+
+/**
+ * Supprimer définitivement une salle (seulement si désactivée et aucune réservation)
  */
 export async function deleteRoom(req: AuthRequest, res: Response): Promise<void> {
   try {
@@ -173,38 +254,41 @@ export async function deleteRoom(req: AuthRequest, res: Response): Promise<void>
       return;
     }
 
-    // Vérifier s'il y a des réservations futures
-    const futureBookings = await prisma.booking.count({
-      where: {
-        roomId: id,
-        status: "CONFIRMED" as const,
-        date: {
-          gte: new Date().toISOString().split("T")[0],
-        },
-      },
-    });
-
-    if (futureBookings > 0) {
+    if (existingRoom.isActive) {
       res.status(400).json({
         success: false,
         error: {
-          code: "HAS_FUTURE_BOOKINGS",
-          message: `Impossible de supprimer : ${futureBookings} réservation(s) future(s) existent pour cette salle`,
+          code: "ROOM_STILL_ACTIVE",
+          message: "Veuillez d'abord désactiver la salle avant de la supprimer",
         },
       });
       return;
     }
 
-    // Soft delete : désactiver la salle
-    const room = await prisma.room.update({
+    const bookingsCount = await prisma.booking.count({
+      where: {
+        roomId: id,
+      },
+    });
+
+    if (bookingsCount > 0) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: "HAS_BOOKINGS",
+          message: `Impossible de supprimer : ${bookingsCount} réservation(s) existent pour cette salle. Attendez que toutes les réservations soient terminées.`,
+        },
+      });
+      return;
+    }
+
+    await prisma.room.delete({
       where: { id },
-      data: { isActive: false },
     });
 
     res.json({
       success: true,
-      message: "Salle désactivée avec succès",
-      data: room,
+      message: "Salle supprimée définitivement",
     });
   } catch (error) {
     console.error("Erreur lors de la suppression de la salle:", error);
@@ -265,11 +349,85 @@ export async function getAllBookings(req: AuthRequest, res: Response): Promise<v
 }
 
 /**
+ * Mettre à jour le statut d'une réservation (admin)
+ */
+export async function updateBookingStatus(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const id = req.params.id as string;
+    const { status } = req.body;
+
+    const validStatuses = ["CONFIRMED", "CANCELLED", "COMPLETED", "MODIFIED"];
+    if (!status || !validStatuses.includes(status)) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: "INVALID_STATUS",
+          message: `Le statut doit être l'un des suivants: ${validStatuses.join(", ")}`,
+        },
+      });
+      return;
+    }
+
+    const existingBooking = await prisma.booking.findUnique({
+      where: { id },
+    });
+
+    if (!existingBooking) {
+      res.status(404).json({
+        success: false,
+        error: {
+          code: "BOOKING_NOT_FOUND",
+          message: "Réservation non trouvée",
+        },
+      });
+      return;
+    }
+
+    const booking = await prisma.booking.update({
+      where: { id },
+      data: { status },
+      include: {
+        room: {
+          select: {
+            name: true,
+            imageUrl: true,
+          },
+        },
+      },
+    });
+
+    res.json({
+      success: true,
+      data: booking,
+    });
+  } catch (error) {
+    console.error("Erreur lors de la mise à jour du statut:", error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "INTERNAL_ERROR",
+        message: "Erreur lors de la mise à jour du statut",
+      },
+    });
+  }
+}
+
+/**
  * Obtenir des statistiques globales
  */
 export async function getStatistics(req: AuthRequest, res: Response): Promise<void> {
   try {
     const today = new Date().toISOString().split("T")[0];
+    const now = new Date();
+    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+      .toISOString()
+      .split("T")[0];
+    const firstDayOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+      .toISOString()
+      .split("T")[0];
+    const lastDayOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0)
+      .toISOString()
+      .split("T")[0];
 
     // Nombre total de salles actives
     const totalRooms = await prisma.room.count({
@@ -279,18 +437,30 @@ export async function getStatistics(req: AuthRequest, res: Response): Promise<vo
     // Nombre total de réservations
     const totalBookings = await prisma.booking.count();
 
-    // Réservations confirmées
-    const confirmedBookings = await prisma.booking.count({
-      where: { status: "CONFIRMED" },
-    });
-
-    // Réservations futures
-    const futureBookings = await prisma.booking.count({
+    // Réservations ce mois-ci
+    const currentMonthBookings = await prisma.booking.count({
       where: {
-        status: "CONFIRMED",
-        date: { gte: today },
+        date: { gte: firstDayOfMonth },
       },
     });
+
+    // Réservations le mois dernier
+    const lastMonthBookings = await prisma.booking.count({
+      where: {
+        date: {
+          gte: firstDayOfLastMonth,
+          lte: lastDayOfLastMonth,
+        },
+      },
+    });
+
+    // Calcul de la croissance mensuelle
+    let monthlyGrowth = 0;
+    if (lastMonthBookings > 0) {
+      monthlyGrowth = ((currentMonthBookings - lastMonthBookings) / lastMonthBookings) * 100;
+    } else if (currentMonthBookings > 0) {
+      monthlyGrowth = 100;
+    }
 
     // Revenu total
     const bookings = await prisma.booking.findMany({
@@ -304,36 +474,47 @@ export async function getStatistics(req: AuthRequest, res: Response): Promise<vo
       0
     );
 
-    // Salle la plus réservée
+    // Utilisateurs actifs (unique userId ayant fait au moins une réservation)
+    const uniqueUsers = await prisma.booking.findMany({
+      select: { userId: true },
+      distinct: ["userId"],
+    });
+
+    // Top 5 salles les plus réservées (toutes réservations sauf annulées)
     const bookingsByRoom = await prisma.booking.groupBy({
       by: ["roomId"],
       _count: { id: true },
-      where: { status: { in: ["CONFIRMED", "COMPLETED"] } },
+      where: {
+        status: {
+          not: "CANCELLED",
+        },
+      },
       orderBy: { _count: { id: "desc" } },
-      take: 1,
+      take: 5,
     });
 
-    let mostBookedRoom = null;
-    if (bookingsByRoom.length > 0) {
-      const room = await prisma.room.findUnique({
-        where: { id: bookingsByRoom[0].roomId },
-        select: { id: true, name: true },
-      });
-      mostBookedRoom = {
-        ...room,
-        bookingCount: bookingsByRoom[0]._count.id,
-      };
-    }
+    const topRooms = await Promise.all(
+      bookingsByRoom.map(async (item) => {
+        const room = await prisma.room.findUnique({
+          where: { id: item.roomId },
+          select: { id: true, name: true, imageUrl: true },
+        });
+        return {
+          ...room,
+          bookings: item._count.id,
+        };
+      })
+    );
 
     res.json({
       success: true,
       data: {
         totalRooms,
         totalBookings,
-        confirmedBookings,
-        futureBookings,
         totalRevenue,
-        mostBookedRoom,
+        activeUsers: uniqueUsers.length,
+        monthlyGrowth: Math.round(monthlyGrowth * 10) / 10,
+        topRooms,
       },
     });
   } catch (error) {

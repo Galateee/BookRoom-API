@@ -12,10 +12,12 @@ export async function getRooms(_req: Request, res: Response): Promise<void> {
       select: {
         id: true,
         name: true,
+        description: true,
         capacity: true,
         pricePerHour: true,
         equipments: true,
         imageUrl: true,
+        isActive: true,
       },
       orderBy: { name: "asc" },
     });
