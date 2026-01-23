@@ -356,7 +356,14 @@ export async function updateBookingStatus(req: AuthRequest, res: Response): Prom
     const id = req.params.id as string;
     const { status } = req.body;
 
-    const validStatuses = ["CONFIRMED", "CANCELLED", "COMPLETED", "MODIFIED"];
+    const validStatuses = [
+      "CONFIRMED",
+      "CANCELLED_BY_ADMIN",
+      "COMPLETED",
+      "CHECKED_IN",
+      "IN_PROGRESS",
+      "NO_SHOW",
+    ];
     if (!status || !validStatuses.includes(status)) {
       res.status(400).json({
         success: false,
@@ -465,7 +472,7 @@ export async function getStatistics(req: AuthRequest, res: Response): Promise<vo
     // Revenu total
     const bookings = await prisma.booking.findMany({
       where: {
-        status: { in: ["CONFIRMED", "COMPLETED"] as const },
+        status: { in: ["CONFIRMED", "CHECKED_IN", "IN_PROGRESS", "COMPLETED"] as const },
       },
       select: { totalPrice: true },
     });
@@ -486,7 +493,7 @@ export async function getStatistics(req: AuthRequest, res: Response): Promise<vo
       _count: { id: true },
       where: {
         status: {
-          not: "CANCELLED",
+          notIn: ["CANCELLED_BY_USER", "CANCELLED_BY_ADMIN", "CANCELLED_NO_PAYMENT", "REFUNDED"],
         },
       },
       orderBy: { _count: { id: "desc" } },

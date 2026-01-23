@@ -94,7 +94,16 @@ export async function createBooking(req: AuthRequest, res: Response): Promise<vo
       where: {
         roomId,
         date,
-        status: { in: ["CONFIRMED", "MODIFIED"] },
+        status: {
+          in: [
+            "PENDING_PAYMENT",
+            "PAYMENT_RECEIVED",
+            "CONFIRMED",
+            "MODIFIED",
+            "CHECKED_IN",
+            "IN_PROGRESS",
+          ],
+        },
         OR: [
           // Le nouveau créneau commence pendant une réservation existante
           {
@@ -145,7 +154,7 @@ export async function createBooking(req: AuthRequest, res: Response): Promise<vo
         customerPhone: customerPhone || null,
         numberOfPeople: numberOfPeople || 1,
         totalPrice,
-        status: "CONFIRMED",
+        status: "PENDING_PAYMENT",
       },
       include: {
         room: { select: { name: true } },
@@ -324,7 +333,11 @@ export async function updateBooking(req: AuthRequest, res: Response): Promise<vo
     }
 
     // Vérifier que la réservation peut être modifiée
-    if (existingBooking.status === "CANCELLED" || existingBooking.status === "COMPLETED") {
+    const cancelledStatuses = ["CANCELLED_BY_USER", "CANCELLED_BY_ADMIN", "CANCELLED_NO_PAYMENT"];
+    if (
+      cancelledStatuses.includes(existingBooking.status) ||
+      existingBooking.status === "COMPLETED"
+    ) {
       res.status(400).json({
         success: false,
         error: {
@@ -346,7 +359,16 @@ export async function updateBooking(req: AuthRequest, res: Response): Promise<vo
           roomId: existingBooking.roomId,
           date: newDate,
           id: { not: id },
-          status: { in: ["CONFIRMED", "MODIFIED"] },
+          status: {
+            in: [
+              "PENDING_PAYMENT",
+              "PAYMENT_RECEIVED",
+              "CONFIRMED",
+              "MODIFIED",
+              "CHECKED_IN",
+              "IN_PROGRESS",
+            ],
+          },
           OR: [
             { startTime: { lte: newStartTime }, endTime: { gt: newStartTime } },
             { startTime: { lt: newEndTime }, endTime: { gte: newEndTime } },
@@ -439,7 +461,8 @@ export async function cancelBooking(req: AuthRequest, res: Response): Promise<vo
     }
 
     // Vérifier que la réservation peut être annulée
-    if (booking.status === "CANCELLED") {
+    const cancelledStatuses = ["CANCELLED_BY_USER", "CANCELLED_BY_ADMIN", "CANCELLED_NO_PAYMENT"];
+    if (cancelledStatuses.includes(booking.status)) {
       res.status(400).json({
         success: false,
         error: {
@@ -464,7 +487,10 @@ export async function cancelBooking(req: AuthRequest, res: Response): Promise<vo
     // Annuler la réservation
     await prisma.booking.update({
       where: { id },
-      data: { status: "CANCELLED" },
+      data: {
+        status: "CANCELLED_BY_USER",
+        cancelledAt: new Date(),
+      },
     });
 
     res.json({

@@ -78,7 +78,7 @@ export async function getRoomById(req: Request, res: Response): Promise<void> {
     const bookings = await prisma.booking.findMany({
       where: {
         roomId: id,
-        status: { in: ["CONFIRMED", "MODIFIED"] },
+        status: { in: ["PENDING_PAYMENT", "CONFIRMED", "MODIFIED"] },
         date: { gte: new Date().toISOString().split("T")[0] },
       },
       select: {

@@ -5,6 +5,8 @@ import { clerkMiddleware } from "@clerk/express";
 import roomRoutes from "./routes/room.routes";
 import bookingRoutes from "./routes/booking.routes";
 import adminRoutes from "./routes/admin.routes";
+import paymentRoutes from "./routes/payment.routes";
+import webhookRoutes from "./routes/webhook.routes";
 import { errorHandler } from "./middlewares/errorHandler";
 
 // Charger les variables d'environnement
@@ -20,6 +22,11 @@ app.use(
     credentials: true,
   })
 );
+
+// Webhook Stripe - doit être AVANT express.json() pour avoir le raw body
+app.use("/api/webhooks/stripe", express.raw({ type: "application/json" }), webhookRoutes);
+
+// Middleware JSON pour les autres routes
 app.use(express.json());
 
 // Middleware Clerk pour l'authentification
@@ -38,6 +45,7 @@ app.get("/health", (_req, res) => {
 app.use("/api/rooms", roomRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/payment", paymentRoutes);
 
 // Route 404
 app.use((_req, res) => {
@@ -57,6 +65,7 @@ app.use(errorHandler);
 app.listen(PORT, () => {
   console.log(`🚀 BookRoom API running on http://localhost:${PORT}`);
   console.log(`📚 Environment: ${process.env.NODE_ENV}`);
+  console.log(`💳 Stripe Mode: ${process.env.STRIPE_MODE || "test"}`);
 });
 
 export default app;
